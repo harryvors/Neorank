@@ -1,0 +1,41 @@
+{
+  "name": "location",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "dev:api": "node server.mjs",
+    "dev:all": "concurrently \"npm run dev:api\" \"npm run dev\"",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@google/genai": "^1.31.0",
+    "@mysten/dapp-kit": "^0.19.11",
+    "@mysten/sui": "^1.45.2",
+    "@mysten/wallet-kit": "^0.8.6",
+    "@prisma/client": "^7.1.0",
+    "@tanstack/react-query": "^5.90.12",
+    "@types/multer": "^2.0.0",
+    "cors": "^2.8.5",
+    "express": "^4.21.1",
+    "framer-motion": "^12.23.25",
+    "leaflet": "^1.9.4",
+    "lucide-react": "^0.556.0",
+    "multer": "^2.0.2",
+    "next": "^16.0.7",
+    "react": "^19.2.1",
+    "react-dom": "^19.2.1",
+    "react-leaflet": "^5.0.0",
+    "tesseract.js": "^6.0.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.14.0",
+    "@vitejs/plugin-react": "^5.0.0",
+    "concurrently": "^9.1.0",
+    "prisma": "^6.19.0",
+    "typescript": "~5.8.2",
+    "vite": "^6.2.0"
+  }
+}

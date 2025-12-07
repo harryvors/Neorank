@@ -1,0 +1,295 @@
+// This is your Prisma schema file for PostgreSQL
+// Learn more: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// Place - simple persistent map data (MVP for hackathon)
+model Place {
+  id            String   @id @default(cuid())
+  name          String
+  lat           Float
+  lng           Float
+  city          String?
+  district      String?
+  address       String?
+  walrusBlobId  String?   // review payload Walrus'ta duruyorsa
+  suiTxDigest   String?   // Sui transaction hash
+  walletAddress String?   // ekleyen kullanıcının adresi
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@index([lat, lng]) // For bounding box queries
+  @@index([name])
+}
+
+// Place Index - stores aggregated data for map display
+model PlaceIndex {
+  id           String   @id @default(cuid())
+  placeId      String   @unique // Unique identifier for the place
+  placeName    String
+  lat          Float
+  lng          Float
+  avgRating    Float    @default(0)
+  reviewCount  Int      @default(0)
+  lastWalrusId String? // Last review's Walrus ID
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([lat, lng]) // For bounding box queries
+  @@index([placeId])
+}
+
+// User - wallet address bazlı kullanıcı profili
+model User {
+  id               String    @id @default(cuid())
+  walletAddress    String    @unique
+  totalPoints      Int       @default(0)
+  currentTier      String    @default("Bronze") // Bronze, Silver, Gold, Platinum
+  reputationScore  Float     @default(50.0) // 0-100
+  consistencyScore Float     @default(50.0) // 0-100
+  streakDays       Int       @default(0)
+  lastReviewDate   DateTime?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  reviews      Review[]
+  reviewScores ReviewScore[]
+  dailyLimits  DailyLimit[]
+  rewards      Reward[]
+  achievements Achievement[]
+  flags        ReviewFlag[]
+
+  @@index([walletAddress])
+  @@index([currentTier])
+}
+
+// Review Index - stores minimal review metadata
+model ReviewIndex {
+  id            String   @id @default(cuid())
+  placeId       String
+  placeName     String
+  walletAddress String
+  walrusId      String   @unique // Walrus CID/ID
+  rating        Float
+  lat           Float
+  lng           Float
+  createdAt     DateTime @default(now())
+
+  @@index([placeId])
+  @@index([walletAddress])
+  @@index([walletAddress, createdAt])
+}
+
+// PlaceCooldown - aynı mekana tekrar değerlendirme cooldown
+model PlaceCooldown {
+  id            String   @id @default(cuid())
+  walletAddress String
+  placeId       String
+  lastReviewAt  DateTime
+  createdAt     DateTime @default(now())
+
+  @@unique([walletAddress, placeId])
+  @@index([walletAddress])
+  @@index([placeId])
+}
+
+// Review - detaylı review bilgileri
+model Review {
+  walletAddress String
+  walrusId      String
+  placeId       String
+  placeName     String
+  rating        Float
+  comment       String?
+  commentLength Int     @default(0)
+  hasPhoto      Boolean @default(false)
+  amenities     Json // Amenity ratings
+  coordinates   Json // { lat, lng }
+  address       String?
+
+  // Verification
+  isVerifiedVisit Boolean @default(false)
+  gpsLatitude     Float?
+  gpsLongitude    Float?
+  gpsDistance     Float? // Distance from place in meters
+
+  // Receipt verification fields
+  verifiedByReceipt    Boolean   @default(false)
+  receiptImageUrl       String?   // Fiş fotoğrafı URL'i
+  receiptSignature      String?   // Canonical signature: "date|amountKurus|last4"
+  receiptSignatureHash  String?   // SHA-256 hash of signature
+  receiptDate           DateTime? // Fiş tarihi
+  receiptAmountKurus    Int?      // Toplam tutar (kuruş cinsinden)
+  receiptLast4          String?    // Fiş numarası son 4 hane
+  receiptOcrText        String?   // OCR'dan çıkan raw text
+  isSuspiciousReceipt   Boolean   @default(false) // Şüpheli fiş flag'i
+
+  // Metadata
+  transactionDigest String? // Sui transaction digest
+  createdAt         DateTime @default(now())
+
+  // Relations
+  user        User         @relation(fields: [walletAddress], references: [walletAddress])
+  reviewScore ReviewScore? @relation("ReviewScoreToReview", fields: [walletAddress, walrusId], references: [walletAddress, walrusId])
+  flags       ReviewFlag[]
+
+  @@id([walletAddress, walrusId])
+  @@unique([walletAddress, walrusId])
+  @@index([placeId])
+  @@index([walletAddress])
+  @@index([createdAt])
+  @@index([placeId, walletAddress, createdAt])
+  @@index([receiptSignatureHash]) // For duplicate receipt detection
+}
+
+// ReviewScore - her review için hesaplanan puanlar
+model ReviewScore {
+  id            String @id @default(cuid())
+  walletAddress String
+  walrusId      String @unique
+
+  // Base points
+  basePoints Int @default(0)
+
+  // Quality bonuses
+  commentBonus     Int @default(0)
+  photoBonus       Int @default(0)
+  amenityBonus     Int @default(0)
+  consistencyBonus Int @default(0)
+  verifiedBonus    Int @default(0)
+
+  // Total
+  totalPoints Int @default(0)
+
+  // Quality scores
+  qualityScore     Float @default(0) // 0-100
+  consistencyScore Float @default(0) // 0-100
+
+  // Daily limit impact
+  dailyLimitIndex  Int? // 1-5 (hangi günlük değerlendirme)
+  pointsMultiplier Float @default(1.0) // 1.0, 0.5, 0.0
+
+  createdAt DateTime @default(now())
+
+  // Relations
+  user   User    @relation(fields: [walletAddress], references: [walletAddress])
+  review Review? @relation("ReviewScoreToReview")
+
+  @@unique([walletAddress, walrusId])
+  @@index([walletAddress])
+  @@index([createdAt])
+}
+
+// DailyLimit - günlük limit takibi
+model DailyLimit {
+  id            String   @id @default(cuid())
+  walletAddress String
+  date          DateTime @db.Date
+  reviewCount   Int      @default(0)
+  totalPoints   Int      @default(0)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  user User @relation(fields: [walletAddress], references: [walletAddress])
+
+  @@unique([walletAddress, date])
+  @@index([walletAddress, date])
+}
+
+// UserReputation - on-chain reputation (blockchain'de de saklanacak)
+model UserReputation {
+  id               String @id @default(cuid())
+  walletAddress    String @unique
+  reputationScore  Float  @default(50.0) // 0-100
+  consistencyScore Float  @default(50.0) // 0-100
+  totalReviews     Int    @default(0)
+  verifiedReviews  Int    @default(0)
+  helpfulVotes     Int    @default(0)
+  flagsReceived    Int    @default(0)
+
+  // On-chain data
+  onChainReputation String? // Sui object ID
+  lastSyncedAt      DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([walletAddress])
+}
+
+// Tier - tier tanımları
+model Tier {
+  id          String   @id @default(cuid())
+  name        String   @unique // Bronze, Silver, Gold, Platinum
+  minPoints   Int
+  maxPoints   Int?
+  discountMin Float // Minimum discount percentage
+  discountMax Float // Maximum discount percentage
+  benefits    Json // Array of benefits
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+// Reward - ödüller
+model Reward {
+  id            String    @id @default(cuid())
+  walletAddress String
+  type          String // "discount", "free_drink", "reservation", "event", "nft"
+  title         String
+  description   String?
+  value         Json // Reward value (discount %, etc.)
+  costPoints    Int // Kaç puan gerekiyor
+  status        String    @default("available") // available, claimed, expired
+  claimedAt     DateTime?
+  expiresAt     DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  user User @relation(fields: [walletAddress], references: [walletAddress])
+
+  @@index([walletAddress])
+  @@index([status])
+}
+
+// Achievement - NFT achievements
+model Achievement {
+  id            String    @id @default(cuid())
+  walletAddress String
+  type          String // "100_reviews", "gold_tier", "high_consistency", etc.
+  title         String
+  description   String?
+  nftTokenId    String? // Sui NFT token ID
+  mintedAt      DateTime?
+  createdAt     DateTime  @default(now())
+
+  user User @relation(fields: [walletAddress], references: [walletAddress])
+
+  @@unique([walletAddress, type])
+  @@index([walletAddress])
+}
+
+// ReviewFlag - spam/şüpheli değerlendirme raporları
+model ReviewFlag {
+  id            String    @id @default(cuid())
+  walletAddress String // Review sahibi
+  walrusId      String
+  flaggedBy     String // Raporlayan kullanıcı
+  reason        String // "spam", "fake", "inappropriate", etc.
+  status        String    @default("pending") // pending, reviewed, dismissed
+  reviewedAt    DateTime?
+  createdAt     DateTime  @default(now())
+
+  user   User   @relation(fields: [walletAddress], references: [walletAddress])
+  review Review @relation(fields: [walletAddress, walrusId], references: [walletAddress, walrusId])
+
+  @@index([walletAddress])
+  @@index([status])
+  @@index([walrusId])
+}

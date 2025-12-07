@@ -1,0 +1,7 @@
+{
+  "name": "Location",
+  "description": "A premium dark-mode cafe discovery platform featuring detailed amenity scoring and interactive map filtering.",
+  "requestFramePermissions": [
+    "geolocation"
+  ]
+}
